@@ -1,12 +1,19 @@
 import streamlit as st
 import pandas as pd
 import requests
-import json
 import os
 
 
-# Retrieve backend URL from environment or default to local docker network setup
-BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:7860").rstrip("/")
+def get_backend_url():
+    env_url = os.getenv("BACKEND_URL")
+    if env_url:
+        return env_url.rstrip("/")
+    if os.path.exists("/.dockerenv"):
+        return "http://backend:7860"
+    return "http://127.0.0.1:7860"
+
+
+BACKEND_URL = get_backend_url()
 
 
 
@@ -47,7 +54,7 @@ with tabs[0]:
         }
         
         try:
-            response = requests.post(f"{BACKEND_URL}/v1/predict", json=payload)
+            response = requests.post(f"{BACKEND_URL}/v1/predict", json=payload, timeout=30)
             if response.status_code == 200:
                 result = response.json()
                 predicted_sales = result.get("Sales", 0.0)
@@ -68,9 +75,9 @@ with tabs[1]:
         st.dataframe(df_input.head())
         
         if st.button("Run Batch Predictions"):
-            files = {'file': uploaded_file.getvalue()}
+            files = {'file': (uploaded_file.name, uploaded_file.getvalue(), 'text/csv')}
             try:
-                response = requests.post(f"{BACKEND_URL}/v1/predictbatch", files=files)
+                response = requests.post(f"{BACKEND_URL}/v1/predictbatch", files=files, timeout=30)
                 if response.status_code == 200:
                     predictions = response.json()
                     df_results = df_input.copy()
