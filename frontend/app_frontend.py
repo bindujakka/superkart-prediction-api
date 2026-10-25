@@ -4,16 +4,47 @@ import requests
 import os
 
 
-def get_backend_url():
+def get_backend_candidates():
+    candidates = []
     env_url = os.getenv("BACKEND_URL")
     if env_url:
-        return env_url.rstrip("/")
+        candidates.append(env_url.rstrip("/"))
+
     if os.path.exists("/.dockerenv"):
-        return "http://backend:7860"
-    return "http://127.0.0.1:7860"
+        candidates.extend([
+            "http://backend:7860",
+            "http://host.docker.internal:7860",
+            "http://127.0.0.1:7860",
+        ])
+    else:
+        candidates.extend([
+            "http://127.0.0.1:7860",
+            "http://localhost:7860",
+        ])
+
+    unique = []
+    seen = set()
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            unique.append(candidate)
+            seen.add(candidate)
+    return unique
 
 
-BACKEND_URL = get_backend_url()
+BACKEND_URLS = get_backend_candidates()
+BACKEND_URL = BACKEND_URLS[0]
+
+
+def post_to_backend(endpoint, **kwargs):
+    last_error = None
+    for base_url in BACKEND_URLS:
+        try:
+            return requests.post(f"{base_url}{endpoint}", timeout=30, **kwargs)
+        except Exception as exc:
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("No backend URLs available")
 
 
 
@@ -54,7 +85,7 @@ with tabs[0]:
         }
         
         try:
-            response = requests.post(f"{BACKEND_URL}/v1/predict", json=payload, timeout=30)
+            response = post_to_backend("/v1/predict", json=payload)
             if response.status_code == 200:
                 result = response.json()
                 predicted_sales = result.get("Sales", 0.0)
@@ -77,7 +108,7 @@ with tabs[1]:
         if st.button("Run Batch Predictions"):
             files = {'file': (uploaded_file.name, uploaded_file.getvalue(), 'text/csv')}
             try:
-                response = requests.post(f"{BACKEND_URL}/v1/predictbatch", files=files, timeout=30)
+                response = post_to_backend("/v1/predictbatch", files=files)
                 if response.status_code == 200:
                     predictions = response.json()
                     df_results = df_input.copy()
